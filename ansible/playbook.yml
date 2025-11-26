@@ -1,0 +1,126 @@
+- name: Provision Ubuntu Server
+  hosts: all
+  become: true
+
+  vars:
+    system_user: "appuser"
+    ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+  tasks:
+    - name: Update APT packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+
+    - name: Install required packages for Docker
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+
+    - name: Add Docker GPG key
+      shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+
+    - name: Install Docker CE
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/latest/download/docker-compose-Linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+
+    - name: Allow SSH, HTTP, HTTPS only
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 22
+        - 80
+        - 443
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+        policy: deny
+
+
+
+    - name: Restrict PostgreSQL to localhost
+      lineinfile:
+        path: /etc/postgresql/14/main/postgresql.conf
+        regexp: "^#?listen_addresses"
+        line: "listen_addresses = 'localhost'"
+      notify: Restart PostgreSQL
+      when: ansible_facts.packages['postgresql'] is defined
+
+    - name: Restrict Redis to localhost
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: "^bind"
+        line: "bind 127.0.0.1 ::1"
+      notify: Restart Redis
+      when: ansible_facts.packages['redis-server'] is defined
+
+
+
+    - name: Create application user
+      user:
+        name: "{{ system_user }}"
+        shell: /bin/bash
+        groups: docker
+        append: yes
+        create_home: yes
+
+    - name: Add SSH key for system user
+      authorized_key:
+        user: "{{ system_user }}"
+        key: "{{ ssh_public_key }}"
+
+
+
+    - name: Disable root SSH login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+
+    - name: Disable password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
+
+    - name: Install Node Exporter (Prometheus)
+      apt:
+        name: prometheus-node-exporter
+        state: present
+
+  handlers:
+    - name: Restart PostgreSQL
+      service:
+        name: postgresql
+        state: restarted
+
+    - name: Restart Redis
+      service:
+        name: redis-server
+        state: restarted

@@ -1,0 +1,28 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  reference       String   @unique
+  amount          Decimal
+  currency        String
+  paymentMethod   String
+  customerPhone   String
+  customerEmail   String?
+  status          String   @default("INITIATED")
+  providerDetails Json     @default("{}")
+  createdAt       DateTime @default(now())
+}
+
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  providerTxId String   @unique
+  payload      Json
+  createdAt    DateTime @default(now())
+}
